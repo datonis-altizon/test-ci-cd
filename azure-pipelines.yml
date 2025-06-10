@@ -12,7 +12,7 @@ variables:
   - name: SLOTGEN_VM_LIST
     value: 'apps-slotgen-1,apps-slotgen-2,apps-slotgen-3,apps-slotgen-4,apps-slotgen-5,apps-slotgen-6,apps-slotgen-7,apps-slotgen-8,apps-slotgen-9,apps-slotgen-10,apps-slotgen-11,apps-slotgen-12,apps-slotgen-13,apps-slotgen-14'
   - name: TIMESTAMP_TAG
-    value: azure_test
+    value: $[format('{0:yyyyMMddHHmm}', pipeline.startTime)]
 
 stages:
 - stage : Deploy
@@ -80,3 +80,220 @@ stages:
             done
             wait
             echo "=== Completed cleanup on all UI VMs ==="
+
+  - job: ParallelDeploySidekiq
+    displayName: Deploy to Sidekiq VMs
+    timeoutInMinutes: 360
+    condition: succeeded()
+    steps:
+    - task: AzureCLI@2
+      displayName: Pull image to all Sidekiq VMs in parallel
+      inputs:
+        azureSubscription: azureSubscription
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          for vm in $(echo $(SLOTGEN_VM_LIST) | tr ',' ' '); do
+            echo "=== Pulling image on $vm ==="
+            az vm run-command invoke \
+              --resource-group $(AZURE_RESOURCE_GROUP) \
+              --name $vm \
+              --command-id RunShellScript \
+              --scripts '
+                sudo docker pull altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG)' &
+          done
+          wait
+          echo "=== Completed pulling images to all Sidekiq VMs ==="
+    - task: AzureCLI@2
+      displayName: Spawn containers on Sidekiq VMs one by one
+      inputs:
+        azureSubscription: azureSubscription
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          for vm in $(echo $(SLOTGEN_VM_LIST) | tr ',' ' '); do
+            echo "=== Spawning containers on $vm ==="
+            case $vm in
+              "apps-slotgen-1")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name sidekiq-to-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
+                    sudo docker run -d --name generic-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation'
+                ;;
+              "apps-slotgen-2")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name generic-slot-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
+                    sudo docker run -d --name scl-slot-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_scl_generation.log -q scl_slot_generation'
+                ;;
+              "apps-slotgen-3")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name generic-slot-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
+                    sudo docker run -d --name sidekiq-to-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
+                    sudo docker run -d --name custom-workers -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_custom_workers.log -q custom_workers'
+                ;;
+              "apps-slotgen-4")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
+                    sudo docker run -d --name factory-critical -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_critical_factory.log -q critical && \
+                    sudo docker run -d --name factory-moderate -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_moderate_factory.log -q moderate'
+                ;;
+              "apps-slotgen-5")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name generic-slot-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
+                    sudo docker run -d --name sidekiq-to-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
+                    sudo docker run -d --name factory-moderate -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_moderate_factory.log -q moderate'
+                ;;
+              "apps-slotgen-6")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
+                    sudo docker run -d --name sidekiq-to-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation'
+                ;;
+              "apps-slotgen-7")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
+                    sudo docker run -d --name sidekiq-to-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation'
+                ;;
+              "apps-slotgen-8")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
+                    sudo docker run -d --name factory-critical -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_critical_factory.log -q critical'
+                ;;
+              "apps-slotgen-9")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
+                    sudo docker run -d --name custom-alert-2 -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) rake '
+                ;;
+              "apps-slotgen-10")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name sidekiq-to-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
+                    sudo docker run -d --name generic-slot-generation2 -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
+                    sudo docker run -d --name jk-mysore-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 2 -L sidekiq_jk_slot.log -q jk_mysore_slot_generation && \
+                    sudo docker run -d --name custom-alert-2 -p 60027:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) rake'
+                ;;
+              "apps-slotgen-11")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    sudo docker run -d --name generic-slot-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
+                    sudo docker run -d --name kafka_consumer -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 2 -L sidekiq_kafka_consumer_production.log -q kafka_consumer'
+                ;;
+              "apps-slotgen-12")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) || true && \
+                    sudo docker run -d --name martin_guitar_slot_generation -p 60027:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:azure_test sidekiq -c 5 -L sidekiq_martin_guitar_generation.log -q martin_guitar_slot_generation && \
+                    sudo docker run -d --name pri-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_generic_slot_generation.log -q pri_generic_slot_generation'
+                ;;
+              "apps-slotgen-13")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) || true && \
+                    sudo docker run -d --name pri-kanpur-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_kanpur_slot_generation.log -q pri_kanpur_slot_generation && \
+                    sudo docker run -d --name pri-slot-generation -p 60027:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_generic_slot_generation.log -q pri_generic_slot_generation'
+                
+                ;;
+              "apps-slotgen-14")
+                az vm run-command invoke \
+                  --resource-group $(AZURE_RESOURCE_GROUP) \
+                  --name $vm \
+                  --command-id RunShellScript \
+                  --scripts '
+                    sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
+                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) || true && \
+                    sudo docker run -d --name pri-nashik-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_nashik_slot_generation.log -q pri_nashik_slot_generation && \
+                    sudo docker run -d --name pri-slot-generation -p 60027:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_generic_slot_generation.log -q pri_generic_slot_generation'
+                
+                ;;
+            esac
+            echo "=== Completed spawning containers on $vm ==="
+          done
+
+    - task: AzureCLI@2
+      displayName: Clean up unused images on Sidekiq VMs in parallel
+      inputs:
+          azureSubscription: azureSubscription
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            for vm in $(echo $(SLOTGEN_VM_LIST) | tr ',' ' '); do
+              echo "=== Cleaning up unused images on $vm in background ==="
+              az vm run-command invoke \
+                --resource-group $(AZURE_RESOURCE_GROUP) \
+                --name $vm \
+                --command-id RunShellScript \
+                --scripts '
+                  sudo docker images "altizon/altizon-factory_sidekiq" --format "{{.Repository}}:{{.Tag}} {{.CreatedSince}}" | grep -v "$(TIMESTAMP_TAG)" | awk "{print $1}" | xargs -r sudo docker rmi -f' &
+            done
+            wait
+            echo "=== Completed cleanup on all Sidekiq VMs ==="  
