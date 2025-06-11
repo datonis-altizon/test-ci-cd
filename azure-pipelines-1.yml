@@ -20,7 +20,6 @@ variables:
 stages:
 - stage: Deploy
   displayName: Deploy Image
-  dependsOn: Build
   jobs:
   - job: ParallelDeployUI
     displayName: Deploy to UI VMs
