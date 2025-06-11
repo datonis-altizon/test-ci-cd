@@ -6,6 +6,7 @@
 pool:
   name: Azure_dfx
 
+
 variables:
   - group: Creds
   - name: AZURE_SUBSCRIPTION
