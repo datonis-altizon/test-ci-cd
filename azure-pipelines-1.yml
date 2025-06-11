@@ -1,0 +1,85 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+pool:
+  name: Azure_dfx
+
+variables:
+  - group: Creds
+  - name: AZURE_SUBSCRIPTION
+    value: 'azureSubscription'
+  - name: AZURE_RESOURCE_GROUP
+    value: 'apps-prod'
+  - name: VM_LIST
+    value: 'apps-mint-ui-2,apps-mintui-3,apps-mintui-4,apps-mintui-5,apps-mintui-6'
+  - name: TIMESTAMP_TAG
+    value: $(Build.BuildNumber)
+
+stages:
+- stage: Deploy
+  displayName: Deploy Image
+  dependsOn: Build
+  jobs:
+  - job: ParallelDeployUI
+    displayName: Deploy to UI VMs
+    condition: succeeded()
+    steps:
+    - task: AzureCLI@2
+      displayName: Pull image to all UI VMs in parallel
+      inputs:
+        azureSubscription: azureSubscription
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          for vm in $(echo $(VM_LIST) | tr ',' ' '); do
+            echo "=== Pulling image on $vm ==="
+            az vm run-command invoke \
+              --resource-group $(AZURE_RESOURCE_GROUP) \
+              --name $vm \
+              --command-id RunShellScript \
+              --scripts '
+                sudo docker pull altizon/altizon-appcenter_nginx:$(TIMESTAMP_TAG)' &
+          done
+          wait
+          echo "=== Completed pulling images to all UI VMs ==="
+    - task: AzureCLI@2
+      displayName: Spawn containers on UI VMs one by one
+      inputs:
+        azureSubscription: azureSubscription
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          for vm in $(echo $(VM_LIST) | tr ',' ' '); do
+            echo "=== Spawning container on $vm ==="
+            az vm run-command invoke \
+              --resource-group $(AZURE_RESOURCE_GROUP) \
+              --name $vm \
+              --command-id RunShellScript \
+              --scripts '
+                sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "appcenter-beta/*" --destination /mnt/configs --overwrite && \
+                sudo docker stop apps-appcenter  || true && \
+                sudo docker rm -f apps-appcenter  || true && \
+                sudo docker run -d --name apps-appcenter --dns 168.63.129.16 --dns-search datonis.io --init -v /mnt:/mnt -v /mnt/ssl:/home/platform/tools/ssl -v /mnt/configs/appcenter-beta/configs:/home/platform/tools/production/shared/config  --workdir /home/platform -p 60023:22 -p 8083:8080 altizon/altizon-appcenter_nginx:$(TIMESTAMP_TAG)'
+            echo "=== Completed spawning container on $vm ==="
+          done
+    
+    - task: AzureCLI@2
+      displayName: Clean up unused images on UI VMs in parallel
+      inputs:
+          azureSubscription: azureSubscription
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            for vm in $(echo $(VM_LIST) | tr ',' ' '); do
+              echo "=== Cleaning up unused images on $vm in background ==="
+              az vm run-command invoke \
+                --resource-group $(AZURE_RESOURCE_GROUP) \
+                --name $vm \
+                --command-id RunShellScript \
+                --scripts '
+                  sudo docker images "altizon/altizon-appcenter_nginx" --format "{{.Repository}}:{{.Tag}} {{.CreatedSince}}" | grep -v "$(TIMESTAMP_TAG)" | awk "{print $1}" | xargs -r sudo docker rmi -f' &
+            done
+            wait
+            echo "=== Completed cleanup on all UI VMs ==="
