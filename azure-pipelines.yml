@@ -1,19 +1,149 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
-trigger:
-- main
-
 pool:
-  vmImage: ubuntu-latest
+  vmImage: 'ubuntu-latest'
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+variables:
+  - group: Creds
+  - name: AZURE_SUBSCRIPTION
+    value: 'azureSubscription'
+  - name: AZURE_RESOURCE_GROUP
+    value: 'sg-prod'
+  - name: VM_LIST
+    value: 'sg-ingestion-host-01, sg-ingestion-host-02, sg-ingestion-host-03'
+  - name: TIMESTAMP_TAG
+    value: $(Build.BuildNumber)
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+
+
+stages:
+- stage: Build
+  displayName: Build image
+  jobs:
+  - job: Build
+    displayName: 'Building image'
+    steps:
+      - checkout: self
+        fetchDepth: 0
+        submodules: true
+        persistCredentials: true
+        clean: true
+
+      - script: |
+          git checkout test_azure_ci
+          echo "Listing top-level files and folders after checkout:"
+          ls -al
+        displayName: 'List fetched Git files'
+
+      - script: |
+          export NODE_OPTIONS="--max-old-space-size=13000"
+        displayName: 'Set NODE_OPTIONS'
+
+      - task: Docker@2
+        displayName: 'Docker Hub Login'
+        inputs:
+          command: login
+          containerRegistry: 'dockerHubConnection'
+
+      - script: |
+          echo "Fetching the latest release tag."
+          'tag=$(curl -s -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/Altizon/datonis/tags | jq ".[0] | .name")'
+          tag=`echo $tag | tr -d '"'`
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          az storage blob download --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --container-name datonis-configs --name "datonis-api/config/mongoid.yml" --file "config/mongoid.yml"
+          az storage blob download --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --container-name datonis-configs --name "datonis-api/config/redis.yml" --file "config/redis.yml"
+          echo "Starting docker image build."
+          echo "Pulling the Sidekiq DEPENDENCIES cache layer."
+          docker pull altizon/datonis-api_sidekiq:DEPENDENCIES || true
+          
+          docker build . --target DEPENDENCIES --cache-from altizon/datonis-api_sidekiq:DEPENDENCIES -t altizon/datonis-api_sidekiq:$(TIMESTAMP_TAG) -f "tools/codebuild/Dockerfile"
+          echo "Pulling the Sidekiq RUNTIME cache layer."
+          docker pull altizon/datonis-api_sidekiq:latest || true
+          
+          docker build . --cache-from altizon/datonis-api_sidekiq:DEPENDENCIES --cache-from altizon/datonis-api_sidekiq:latest -t altizon/datonis-api_sidekiq:$(TIMESTAMP_TAG) -f "tools/codebuild/Dockerfile" --build-arg ENTRYPOINT_FILE_NAME="sidekiq"
+          echo "Sidekiq Image Build Completed with return code $?"
+          
+          docker build . --cache-from altizon/datonis-api_sidekiq:DEPENDENCIES --cache-from altizon/datonis-api_sidekiq:latest -t altizon/datonis-api_nginx:$(TIMESTAMP_TAG) -f "tools/codebuild/Dockerfile" --build-arg ENTRYPOINT_FILE_NAME="nginx"
+          echo "Nginx UI Image Build Completed with return code $?"
+
+          docker build . --cache-from altizon/datonis-api_sidekiq:DEPENDENCIES --cache-from altizon/datonis-api_sidekiq:latest -t altizon/datonis-bg-task-status:$(TIMESTAMP_TAG) -f "tools/codebuild/Dockerfile" --build-arg ENTRYPOINT_FILE_NAME="bg" 
+          echo "Background Status Image Build Completed with return code $?"
+
+          echo "Starting to push Sidekiq RUNTIME image to Docker Hub."
+          docker push altizon/datonis-api_sidekiq:$(TIMESTAMP_TAG)
+          echo "Starting to push Sidekiq DEPENDENCIES image to Docker Hub."
+          docker push altizon/datonis-api_sidekiq:DEPENDENCIES
+          echo "Starting to push Nginx UI RUNTIME image to Docker Hub."
+          docker push altizon/datonis-api_nginx:$(TIMESTAMP_TAG)
+          echo "Starting to push Background Status image to Docker Hub."
+          docker push altizon/datonis-bg-task-status:$(TIMESTAMP_TAG)
+          echo "Docker Hub push completed with return code $?"
+
+        displayName: 'Building Docker image'
+        
+- stage: Deploy
+  displayName: Deploy Image
+  dependsOn: Build
+  jobs:
+  - job: ParallelDeploy
+    displayName: Deploy to VMs
+    condition: succeeded()
+    steps:
+    - task: AzureCLI@2
+      displayName: Pull image to all VMs in parallel
+      inputs:
+        azureSubscription: azureSubscription
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          for vm in $(echo $(VM_LIST) | tr ',' ' '); do
+            echo "=== Pulling image on $vm ==="
+            az vm run-command invoke \
+              --resource-group $(AZURE_RESOURCE_GROUP) \
+              --name $vm \
+              --command-id RunShellScript \
+              --scripts '
+                sudo docker pull altizon/datonis-api_nginx:$(TIMESTAMP_TAG)' &
+          done
+          wait
+          echo "=== Completed pulling images to all UI VMs ==="
+    - task: AzureCLI@2
+      displayName: Spawn containers on VMs one by one
+      inputs:
+        azureSubscription: azureSubscription
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          for vm in $(echo $(VM_LIST) | tr ',' ' '); do
+            echo "=== Spawning container on $vm ==="
+            az vm run-command invoke \
+              --resource-group $(AZURE_RESOURCE_GROUP) \
+              --name $vm \
+              --command-id RunShellScript \
+              --scripts '
+                sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source datonis-configs --pattern "datonis-api/*" --destination /mnt/configs --overwrite && \
+                sudo docker stop datonis-api || true && \
+                sudo docker rm -f datonis-api || true && \
+                sudo docker run -itd --name sg-ingestion --hostname sg-ingestion -p 60028:22 -p 8080:8080 -v /mnt:/mnt --dns 168.63.129.16 --dns-search datonis.io altizon/sg-ingestion-1:22072025 /bin/bash' 
+            echo "=== Completed spawning container on $vm ==="
+          done
+    
+    - task: AzureCLI@2
+      displayName: Clean up unused images on VMs in parallel
+      inputs:
+          azureSubscription: azureSubscription
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            for vm in $(echo $(VM_LIST) | tr ',' ' '); do
+              echo "=== Cleaning up unused images on $vm in background ==="
+              az vm run-command invoke \
+                --resource-group $(AZURE_RESOURCE_GROUP) \
+                --name $vm \
+                --command-id RunShellScript \
+                --scripts '
+                  sudo docker image prune -f' &
+            done
+            wait
+            echo "=== Completed cleanup on all UI VMs ==="
+
+
+    
