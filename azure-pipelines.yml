@@ -1,6 +1,10 @@
 pool:
   name: Azure_dfx
 
+trigger: none
+
+pr: none
+
 variables:
   - group: Creds
   - name: AZURE_SUBSCRIPTION
@@ -121,8 +125,8 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
-                    sudo docker run -d --name sidekiq-to-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
+                    docker stop sidekiq-to-generation generic-slot-generation && docker rm sidekiq-to-generation generic-slot-generation && \
+                    sudo docker run -d --name sidekiq-to-generation generic-slot-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
                     sudo docker run -d --name generic-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation'
                 ;;
               "apps-slotgen-2")
@@ -132,7 +136,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop generic-slot-generation scl-slot-generation && docker rm generic-slot-generation scl-slot-generation && \
                     sudo docker run -d --name generic-slot-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
                     sudo docker run -d --name scl-slot-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_scl_generation.log -q scl_slot_generation'
                 ;;
@@ -143,7 +147,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop generic-slot-generation sidekiq-to-generation custom-workers  && docker rm generic-slot-generation sidekiq-to-generation custom-workers && \
                     sudo docker run -d --name generic-slot-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
                     sudo docker run -d --name sidekiq-to-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
                     sudo docker run -d --name custom-workers -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_custom_workers.log -q custom_workers'
@@ -155,7 +159,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop factory-default factory-critical factory-moderate && docker rm factory-default factory-critical factory-moderate && \
                     sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
                     sudo docker run -d --name factory-critical -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_critical_factory.log -q critical && \
                     sudo docker run -d --name factory-moderate -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_moderate_factory.log -q moderate'
@@ -167,7 +171,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop generic-slot-generation sidekiq-to-generation factory-moderate && docker rm generic-slot-generation sidekiq-to-generation factory-moderate && \
                     sudo docker run -d --name generic-slot-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
                     sudo docker run -d --name sidekiq-to-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
                     sudo docker run -d --name factory-moderate -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_moderate_factory.log -q moderate'
@@ -179,7 +183,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop factory-default sidekiq-to-generation && docker rm factory-default sidekiq-to-generation && \
                     sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
                     sudo docker run -d --name sidekiq-to-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation'
                 ;;
@@ -190,7 +194,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop factory-default  sidekiq-to-generation && docker rm factory-default  sidekiq-to-generation && \
                     sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
                     sudo docker run -d --name sidekiq-to-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation'
                 ;;
@@ -201,7 +205,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop factory-default factory-critical && docker rm factory-default factory-critical && \
                     sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
                     sudo docker run -d --name factory-critical -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_critical_factory.log -q critical'
                 ;;
@@ -212,7 +216,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop factory-default custom-alert-2 && docker rm factory-default custom-alert-2 && \
                     sudo docker run -d --name factory-default -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 3 -L sidekiq_factory_default_production.log -q factory_default && \
                     sudo docker run -d --name custom-alert-2 -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) rake '
                 ;;
@@ -223,7 +227,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop sidekiq-to-generation generic-slot-generation2 jk-mysore-slot-generation custom-alert-2  && docker rm sidekiq-to-generation generic-slot-generation2 jk-mysore-slot-generation custom-alert-2 && \
                     sudo docker run -d --name sidekiq-to-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
                     sudo docker run -d --name generic-slot-generation2 -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
                     sudo docker run -d --name jk-mysore-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 2 -L sidekiq_jk_slot.log -q jk_mysore_slot_generation && \
@@ -236,7 +240,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) && \
+                    docker stop generic-slot-generation kafka_consumer  && docker rm generic-slot-generation kafka_consumer && \
                     sudo docker run -d --name generic-slot-generation -p 60025:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation && \
                     sudo docker run -d --name kafka_consumer -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 2 -L sidekiq_kafka_consumer_production.log -q kafka_consumer'
                 ;;
@@ -247,7 +251,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) || true && \
+                    docker stop martin_guitar_slot_generation pri-slot-generation && docker rm martin_guitar_slot_generation pri-slot-generation || true && \
                     sudo docker run -d --name martin_guitar_slot_generation -p 60027:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:azure_test sidekiq -c 5 -L sidekiq_martin_guitar_generation.log -q martin_guitar_slot_generation && \
                     sudo docker run -d --name pri-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_generic_slot_generation.log -q pri_generic_slot_generation'
                 ;;
@@ -258,7 +262,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) || true && \
+                    docker stop pri-kanpur-slot-generation pri-slot-generation  && docker rm pri-kanpur-slot-generation pri-slot-generation || true && \
                     sudo docker run -d --name pri-kanpur-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_kanpur_slot_generation.log -q pri_kanpur_slot_generation && \
                     sudo docker run -d --name pri-slot-generation -p 60027:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_generic_slot_generation.log -q pri_generic_slot_generation'
                 
@@ -270,7 +274,7 @@ stages:
                   --command-id RunShellScript \
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
-                    docker stop $(docker ps -q) && docker rm $(docker ps -aq) || true && \
+                    docker stop pri-nashik-slot-generation pri-slot-generation  && docker rm pri-nashik-slot-generation pri-slot-generation || true && \
                     sudo docker run -d --name pri-nashik-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_nashik_slot_generation.log -q pri_nashik_slot_generation && \
                     sudo docker run -d --name pri-slot-generation -p 60027:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_pri_generic_slot_generation.log -q pri_generic_slot_generation'
                 
