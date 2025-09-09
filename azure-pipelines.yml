@@ -16,7 +16,7 @@ variables:
   - name: SLOTGEN_VM_LIST
     value: 'apps-slotgen-1,apps-slotgen-2,apps-slotgen-3,apps-slotgen-4,apps-slotgen-5,apps-slotgen-6,apps-slotgen-7,apps-slotgen-8,apps-slotgen-9,apps-slotgen-10,apps-slotgen-11,apps-slotgen-12,apps-slotgen-13,apps-slotgen-14'
   - name: TIMESTAMP_TAG
-    value: $[format('{0:yyyyMMddHHmm}', pipeline.startTime)]
+    value: 20250827.3 
 
 stages:
 - stage : Deploy
