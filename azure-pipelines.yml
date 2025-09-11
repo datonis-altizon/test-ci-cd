@@ -16,7 +16,7 @@ variables:
   - name: SLOTGEN_VM_LIST
     value: 'apps-slotgen-1,apps-slotgen-2,apps-slotgen-3,apps-slotgen-4,apps-slotgen-5,apps-slotgen-6,apps-slotgen-7,apps-slotgen-8,apps-slotgen-9,apps-slotgen-10,apps-slotgen-11,apps-slotgen-12,apps-slotgen-13,apps-slotgen-14'
   - name: TIMESTAMP_TAG
-    value: 20250827.3 
+    value: '20250827.3' 
 
 stages:
 - stage : Deploy
@@ -126,7 +126,7 @@ stages:
                   --scripts '
                     sudo az storage blob download-batch --account-name altizondfxconfigs --account-key "$(AZURE_STORAGE_KEY)" --source dfx-configs --pattern "factory-beta/*" --destination /mnt/configs --overwrite && \
                     docker stop sidekiq-to-generation generic-slot-generation && docker rm sidekiq-to-generation generic-slot-generation && \
-                    sudo docker run -d --name sidekiq-to-generation generic-slot-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
+                    sudo docker run -d --name sidekiq-to-generation -p 60024:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 7 -L sidekiq_to_generation.log -q to_generation && \
                     sudo docker run -d --name generic-slot-generation -p 60026:22 --dns 168.63.129.16 --dns-search datonis.io -v /mnt:/mnt -v /mnt/configs/factory-beta/configs:/home/platform/tools/production/shared/config --user platform altizon/altizon-factory_sidekiq:$(TIMESTAMP_TAG) sidekiq -c 5 -L sidekiq_generic_production.log -q slot_generation'
                 ;;
               "apps-slotgen-2")
