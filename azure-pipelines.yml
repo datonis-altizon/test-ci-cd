@@ -12,7 +12,7 @@ variables:
   - name: AZURE_RESOURCE_GROUP
     value: 'apps-prod'
   - name: VM_LIST
-    value: 'apps-mint-ui-9'
+    value: 'apps-mintui-9'
 #  - name: SLOTGEN_VM_LIST
 #    value: 'apps-slotgen-1,apps-slotgen-2,apps-slotgen-3,apps-slotgen-4,apps-slotgen-5,apps-slotgen-6,apps-slotgen-7,apps-slotgen-8,apps-slotgen-9,apps-slotgen-10,apps-slotgen-11,apps-slotgen-12'
   - name: TIMESTAMP_TAG
